@@ -1,0 +1,103 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+data_dir = config["data_dir"]
+align_dir = config["align_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+
+rule oarfish_quant_align_mode_filter:
+	output: 
+		time_NoCoverage = join(long_results_dir, 'oarfish_align_filter_quant/{dtype}/{name}_{rep}{run}/time_nocov'),
+		time_binomial = join(long_results_dir, 'oarfish_align_filter_quant/{dtype}/{name}_{rep}{run}/time_cov'),
+	input:
+		alignment = join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_T.bam'),
+		oarfish = config["oarfish"],
+	threads: config["num_threads"]
+	params:
+		quant_NoCoverage = join(long_results_dir, 'oarfish_align_filter_quant/{dtype}/{name}_{rep}{run}/out_nocov'),
+		quant_binomial = join(long_results_dir, 'oarfish_align_filter_quant/{dtype}/{name}_{rep}{run}/out_cov'),
+		drna_flag = lambda wildcards: "-d fw" if wildcards.dtype == "directRNA" else "",
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_NoCoverage} -v {input.oarfish} --alignments {input.alignment} --threads {threads} --output {params.quant_NoCoverage} --filter-group nanocount-filters {params.drna_flag}
+		/usr/bin/time -o {output.time_binomial} -v {input.oarfish} --alignments {input.alignment} --threads {threads} --output {params.quant_binomial} --model-coverage --filter-group nanocount-filters {params.drna_flag}
+		"""
+
+
+rule oarfish_quant_align_mode_ShR_filter:
+	output: 
+		time_NoCoverage = join(long_results_dir, 'oarfish_align_filter_quant_ShR/{dtype}/{name}_{rep}{run}/time_nocov'),
+		time_binomial = join(long_results_dir, 'oarfish_align_filter_quant_ShR/{dtype}/{name}_{rep}{run}/time_cov'),
+	input:
+		alignment = join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_T.bam'),
+		oarfish = config["oarfish"],
+		ShR_path = join(long_results_dir, 'short_read/{name}_{rep}1/quant.sf'),
+	threads: config["num_threads"]
+	params:
+		quant_NoCoverage = join(long_results_dir, 'oarfish_align_filter_quant_ShR/{dtype}/{name}_{rep}{run}/out_nocov'),
+		quant_binomial = join(long_results_dir, 'oarfish_align_filter_quant_ShR/{dtype}/{name}_{rep}{run}/out_cov'),
+		drna_flag = lambda wildcards: "-d fw" if wildcards.dtype == "directRNA" else "",
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_NoCoverage} -v {input.oarfish} --alignments {input.alignment} --threads {threads} --short-quant {input.ShR_path} --output {params.quant_NoCoverage} --filter-group nanocount-filters {params.drna_flag}
+		/usr/bin/time -o {output.time_binomial} -v {input.oarfish} --alignments {input.alignment} --threads {threads} --short-quant {input.ShR_path} --output {params.quant_binomial} --model-coverage --filter-group nanocount-filters {params.drna_flag}
+		"""
+
+
+rule oarfish_quant_raw_data_mode_filter:
+	output: 
+		time_NoCoverage = join(long_results_dir, 'oarfish_raw_filter_quant/{dtype}/{name}_{rep}{run}/time_nocov'),
+		time_binomial = join(long_results_dir, 'oarfish_raw_filter_quant/{dtype}/{name}_{rep}{run}/time_cov'),
+	input:
+		read = join(data_dir, "ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.fastq.gz"),
+		index = join(align_dir, 'LongReads/assembled_txps.mmi'),
+		oarfish = config["oarfish"],
+	threads: config["num_threads"]
+	params:
+		quant_NoCoverage = join(long_results_dir, 'oarfish_raw_filter_quant/{dtype}/{name}_{rep}{run}/out_nocov'),
+		quant_binomial = join(long_results_dir, 'oarfish_raw_filter_quant/{dtype}/{name}_{rep}{run}/out_cov'),
+		drna_flag = lambda wildcards: "-d fw" if wildcards.dtype == "directRNA" else "",
+		seq_flag = lambda wildcards: "ont-drna" if wildcards.dtype == "directRNA" else "ont-cdna",
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_NoCoverage} -v {input.oarfish} --reads {input.read} --reference {input.index} --seq-tech {params.seq_flag} --threads {threads} --output {params.quant_NoCoverage} --filter-group nanocount-filters {params.drna_flag}
+		/usr/bin/time -o {output.time_binomial} -v {input.oarfish} --reads {input.read} --reference {input.index} --seq-tech {params.seq_flag} --threads {threads} --output {params.quant_binomial} --model-coverage --filter-group nanocount-filters {params.drna_flag}
+		"""
+
+rule oarfish_quant_raw_data_mode_ShR_filter:
+	output: 
+		time_NoCoverage = join(long_results_dir, 'oarfish_raw_filter_quant_ShR/{dtype}/{name}_{rep}{run}/time_nocov'),
+		time_binomial = join(long_results_dir, 'oarfish_raw_filter_quant_ShR/{dtype}/{name}_{rep}{run}/time_cov'),
+	input:
+		read = join(data_dir, "ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.fastq.gz"),
+		index = join(align_dir, 'LongReads/assembled_txps.mmi'),
+		oarfish = config["oarfish"],
+		ShR_path = join(long_results_dir, 'short_read/{name}_{rep}1/quant.sf'),
+	threads: config["num_threads"]
+	params:
+		quant_NoCoverage = join(long_results_dir, 'oarfish_raw_filter_quant_ShR/{dtype}/{name}_{rep}{run}/out_nocov'),
+		quant_binomial = join(long_results_dir, 'oarfish_raw_filter_quant_ShR/{dtype}/{name}_{rep}{run}/out_cov'),
+		drna_flag = lambda wildcards: "-d fw" if wildcards.dtype == "directRNA" else "",
+		seq_flag = lambda wildcards: "ont-drna" if wildcards.dtype == "directRNA" else "ont-cdna",
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_NoCoverage} -v {input.oarfish} --reads {input.read} --reference {input.index} --seq-tech {params.seq_flag} --threads {threads} --short-quant {input.ShR_path} --output {params.quant_NoCoverage} --filter-group nanocount-filters {params.drna_flag}
+		/usr/bin/time -o {output.time_binomial} -v {input.oarfish} --reads {input.read} --reference {input.index} --seq-tech {params.seq_flag} --threads {threads} --short-quant {input.ShR_path} --output {params.quant_binomial} --model-coverage --filter-group nanocount-filters {params.drna_flag}
+		"""
+
+
+rule all_oarfish_filter:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'oarfish_align_filter_quant/{dtype}/{name}_{rep}{run}/time_nocov'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),
+		mapped_long_reads2 = expand( join(long_results_dir, 'oarfish_align_filter_quant_ShR/{dtype}/{name}_{rep}{run}/time_nocov'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),
+		mapped_long_reads3 = expand( join(long_results_dir, 'oarfish_raw_filter_quant/{dtype}/{name}_{rep}{run}/time_nocov'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),
+		mapped_long_reads4 = expand( join(long_results_dir, 'oarfish_raw_filter_quant_ShR/{dtype}/{name}_{rep}{run}/time_nocov'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),

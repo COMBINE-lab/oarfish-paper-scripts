@@ -1,0 +1,41 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+align_dir = config["align_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+
+rule nanocount_quant:
+	output: 
+		out_quant = join(long_results_dir, "NanoCount_quant/{sample}/isoform_expression_estimates"),
+		out_time = join(long_results_dir, "NanoCount_quant/{sample}/time_info"),
+	input:
+		bam_out = join(align_dir, '{sample}_T.bam'),
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.out_time} -v NanoCount -i {input.bam_out} --keep_neg_strand --extra_tx_info -o {output.out_quant} 
+		"""
+
+rule nanocount_nofilt_quant:
+	output: 
+		out_quant = join(long_results_dir, "NanoCount_quant_nofilt/{sample}/isoform_expression_estimates"),
+		out_time = join(long_results_dir, "NanoCount_quant_nofilt/{sample}/time_info"),
+	input:
+		bam_out = join(align_dir, '{sample}_T.bam'),
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.out_time} -v NanoCount -i {input.bam_out} --keep_neg_strand --extra_tx_info -o {output.out_quant}  -l 1 -f 0.0001 -d -1
+		"""
+
+
+rule all_nanocount:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'NanoCount_quant{rt}/{sample}/isoform_expression_estimates'),  rt=["", "_nofilt"], sample=["SQ2", "RSII"]),

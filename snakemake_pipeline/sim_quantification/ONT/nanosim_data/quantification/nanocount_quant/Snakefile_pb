@@ -1,0 +1,46 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+align_dir = config["align_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+
+rule nanocount_quant:
+	output: 
+		out_quant = join(long_results_dir, "NanoCount_quant/{rep}/{sample}/isoform_expression_estimates"),
+		out_time = join(long_results_dir, "NanoCount_quant/{rep}/{sample}/time_info"),
+	input:
+		bam_file = join(align_dir, '{rep}/{sample}_T.bam'),
+	params:
+		drna_flag = lambda wildcards: "" if wildcards.sample == "drna" else "--keep_neg_strand"
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.out_time} -v NanoCount -i {input.bam_file} --extra_tx_info -o {output.out_quant} {params.drna_flag}
+		"""
+
+rule nanocount_nofilt_quant:
+	output: 
+		out_quant = join(long_results_dir, "NanoCount_quant_nofilt/{rep}/{sample}/isoform_expression_estimates"),
+		out_time = join(long_results_dir, "NanoCount_quant_nofilt/{rep}/{sample}/time_info"),
+	input:
+		bam_file = join(align_dir, '{rep}/{sample}_T.bam'),
+	params:
+		drna_flag = lambda wildcards: "" if wildcards.sample == "drna" else "--keep_neg_strand"
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.out_time} -v NanoCount -i {input.bam_file} --extra_tx_info -o {output.out_quant}  -l 1 -f 0.0001 -d -1 {params.drna_flag}
+		"""
+
+
+rule all_nanocount:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'NanoCount_quant/{rep}/{sample}/isoform_expression_estimates'), zip, rep=["H9_1DcDNA", "H9_directRNA", "NA12878_1DcDNA", "NA12878_directRNA"], sample=["cdna", "drna", "cdna", "drna"]),
+		mapped_long_reads2 = expand( join(long_results_dir, 'NanoCount_quant_nofilt/{rep}/{sample}/isoform_expression_estimates'), zip, rep=["H9_1DcDNA", "H9_directRNA", "NA12878_1DcDNA", "NA12878_directRNA"], sample=["cdna", "drna", "cdna", "drna"]),

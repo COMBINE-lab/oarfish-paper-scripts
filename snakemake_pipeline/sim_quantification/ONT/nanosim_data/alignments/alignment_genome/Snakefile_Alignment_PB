@@ -1,0 +1,70 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+
+ref_dir = config["reference_dir"]
+data_dir = config["data_dir"]
+align_dir = config["align_dir"]
+
+GENOME_FILE = join(ref_dir, config["genome_file"])
+GTF_FILE = join(ref_dir, config["gtf_file"])
+
+
+#obtain annotation bed file
+rule annotation_bed_file:
+	output: 
+		bed_file = join(ref_dir, 'GCF_000001405.40_GRCh38.p14_genomic.bed'),
+
+	input:
+		annotation = GTF_FILE,
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		paftools.js gff2bed {input.annotation} > {output.bed_file}
+		"""
+
+rule index_file_genome:
+    output: 
+        genome_index = join(align_dir, 'GCF_000001405.40_GRCh38.p14_genomic.mmi'),
+        time_index = join(align_dir, 'idx_time_G'),
+    input:
+        genome = GENOME_FILE,
+
+    threads: config["num_threads"]
+
+    shell:
+        """
+        /usr/bin/time -o {output.time_index} -v minimap2 -t {threads} -x splice -d {output.genome_index} {input.genome}
+        """
+
+#Map long reads against transcripts using minimap2
+rule map_genome:
+	output: 
+		bam_out = join(align_dir, '{rep}/{sample}_G.bam'),
+		time_out = join(align_dir, '{rep}/{sample}_time_G'),
+
+	input:
+		genome = GENOME_FILE,
+		genome_index = join(align_dir, 'GCF_000001405.40_GRCh38.p14_genomic.mmi'),
+		bed_file = join(ref_dir, 'GCF_000001405.40_GRCh38.p14_genomic.bed'),
+		long_samples = join(data_dir, "{rep}/{sample}_s1_reads_shuffled.fastq.gz"),
+
+	threads: config["num_threads"]
+
+	params:
+		ax_type = lambda wildcards: "-uf" if wildcards.sample == "drna" else "-ub"
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_out} -v minimap2 --junc-bed {input.bed_file} -t {threads} -ax splice {params.ax_type} --secondary=no {input.genome} {input.long_samples}\
+		| samtools view -@{threads} -h -F 2052 -bS > {output.bam_out}
+		"""
+
+rule all_geneome:
+	input:
+		mapped_long_reads = expand( join(align_dir, '{rep}/{sample}_G.bam'), zip, rep=["H9_1DcDNA", "H9_directRNA", "NA12878_1DcDNA", "NA12878_directRNA"], sample=["cdna", "drna", "cdna", "drna"]),

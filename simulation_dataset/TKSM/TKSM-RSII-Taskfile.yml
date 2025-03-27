@@ -1,0 +1,122 @@
+version: '3'
+
+tasks:
+
+  get_read_data:
+    summary: |
+      Obtain the PacBio RSII sequenced data
+    cmds:
+      - prefetch SRR28480835 --max-size u
+      - fasterq-dump SRR28480835
+      - mv SRR28480835.fastq RSII.fastq
+      - gzip -c SRR28480835.fastq > RSII.fastq.gz
+
+  get_ref_txps:
+    summary: |
+      Obtain the reference transcript sequences for RefSeq 110 (GRCh38)
+    cmds:
+      - aria2c -x8 https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_rna.fna.gz
+
+  get_ref_genome:
+    summary: |
+      Obtain the reference genome sequences for RefSeq 110 (GRCh38)
+    cmds:
+      - aria2c -x8 https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz
+
+  polyA_tail_info:
+    summary: |
+      Obtain the information for polyAtail of the RSII dataset
+    cmds:
+      - ./polyAtail_length.r --input="RSII.fastq" --output="polyAtail_RSII" --samplename="RSII"
+
+  badread_identity:
+    summary: |
+      obtain sequencing identity distribution for RSII dataset
+    cmds:
+      - minimap2 -t 36 -c -x map-hifi GCF_000001405.40_GRCh38.p14_rna.fna RSII.fastq.gz | gzip > RSII_T.paf.gz
+      - python badread_identity.py RSII_T.paf.gz
+
+  badread_error_model:
+    summary: |
+      obtain the error model for RSII dataset
+    cmds:
+      - minimap2 -t 36 -c -x map-hifi GCF_000001405.40_GRCh38.p14_rna.fna RSII.fastq.gz | gzip > RSII_T.paf.gz
+      - badread error_model --reference GCF_000001405.40_GRCh38.p14_rna.fna --reads RSII.fastq.gz --alignment RSII_T.paf.gz > RSII_error_model
+
+  badread_qscore_model:
+    summary: |
+      obtain the qscore model for RSII dataset
+    cmds:
+      - minimap2 -t 36 -c -x map-hifi GCF_000001405.40_GRCh38.p14_rna.fna RSII.fastq.gz | gzip > RSII_T.paf.gz
+      - badread qscore_model --reference GCF_000001405.40_GRCh38.p14_rna.fna --reads RSII.fastq.gz --alignment RSII_T.paf.gz > RSII_qscore_model
+
+#================================================================TKSM pipeline for simulation==========================================================================
+  align_minimap2:
+      cmds:
+        - echo "Running minimap2 on RSII dataset"
+        - minimap2 -ax map-hifi -N 100 -t 36 GCF_000001405.40_GRCh38.p14_rna.fna RSII.fastq.gz | samtools view -@36 -h -F 2052 > RSII_T.sam
+        - paftools.js sam2paf RSII_T.sam > RSII_T.paf
+      sources:
+        - GCF_000001405.40_GRCh38.p14_rna.fna
+        - RSII.fastq.gz
+      generates:
+        - RSII_T.paf
+
+  Exprs_step:
+    summary: |
+      Quantify the RSII dataset
+    cmds:
+      - tksm abundance -p RSII_T.paf -o RSII_quant.tsv -em 1000
+    sources:
+      - RSII_T.paf
+    generates:
+      - RSII_quant.tsv
+
+  Trc_step:
+    summary: |
+      obtain the kde model for length distribution
+    cmds:
+      - tksm model-truncation -i RSII_T.paf -o RSII_kde.json -b -1 --grid-start 33 --grid-end 255166 -t 36
+    sources:
+      - RSII_T.paf
+    generates:
+      - RSII_kde.json
+
+  Tsb_step:
+    summary: |
+      obtain the kde model for length distribution
+    cmds:
+      - tksm transcribe -g GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.gtf -a RSII_quant.tsv --molecule-count 14000000 --use-whole-id --non-coding -o RSII_simulated_molecules.mdf
+    sources:
+      - GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.gtf
+      - RSII_quant.tsv
+    generates:
+      - RSII_simulated_molecules.mdf
+
+  Core_modules:
+    summary: |
+      obtain the modified molecule based on the polyAtail and KDE model that is obtained 
+    cmds:
+      - tksm polyA -i RSII_simulated_molecules.mdf -o RSII_simulated_molecules_polyA.mdf --normal=34.62,69.20
+      - tksm shuffle -i RSII_simulated_molecules_polyA.mdf -o RSII_simulated_molecules_polyA_shuffled.mdf
+      - tksm truncate -i RSII_simulated_molecules_polyA_shuffled.mdf -o RSII_simulated_molecules_polyA_shuffled_truncated.mdf --kde-model RSII_kde.json
+    sources:
+      - RSII_simulated_molecules.mdf
+      - RSII_kde.json
+    generates:
+      - RSII_simulated_molecules_polyA.mdf
+      - RSII_simulated_molecules_polyA_shuffled.mdf
+      - RSII_simulated_molecules_polyA_shuffled_truncated.mdf
+
+  seq_modules:
+    summary: |
+      simulate the RSII sequenced dataset 
+    cmds:
+      - tksm sequence -i RSII_simulated_molecules_polyA_shuffled_truncated.mdf -r GCF_000001405.40_GRCh38.p14_genomic.fna -o RSII_simulated.fastq.gz --badread-identity 89.35,100.00,2.89 --badread-error-model RSII_error_model --badread-qscore-model RSII_qscore_model --output-format fastq --threads 36
+    sources:
+      - GCF_000001405.40_GRCh38.p14_genomic.fna
+      - RSII_simulated_molecules_polyA_shuffled_truncated.mdf
+      - RSII_error_model
+      - RSII_qscore_model
+    generates:
+      - RSII_simulated.fastq.gz

@@ -1,0 +1,34 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+align_dir = config["align_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+
+rule nanocount_quant:
+	output: 
+		out_quant = join(long_results_dir, "NanoCount_quant/{dtype}/{name}_{rep}{run}/isoform_expression_estimates"),
+		out_time = join(long_results_dir, "NanoCount_quant/{dtype}/{name}_{rep}{run}/time_info"),
+
+	input:
+		AlignedQuery = join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_T.bam'),
+
+	params:
+		ax_type = lambda wildcards: " " if wildcards.dtype == "directRNA" else "--keep_neg_strand"
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.out_time} -v NanoCount -i {input.AlignedQuery} --extra_tx_info -o {output.out_quant} {params.ax_type}
+		"""
+
+
+
+rule all_nanocount:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'NanoCount_quant/{dtype}/{name}_{rep}{run}/isoform_expression_estimates'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),

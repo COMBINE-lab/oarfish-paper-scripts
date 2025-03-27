@@ -1,0 +1,51 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+align_dir = config["align_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+GENOME_FILE = join(ref_dir, config["genome_file"])
+GTF_FILE = join(ref_dir, config["gtf_file"])
+
+
+#Long read quantification NoCoverage
+rule espresso_quant:
+	output:
+		sam_sorted = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/samout_sorted.sam"),
+		tsv_file = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/sam_sorted.tsv"),
+		out_quant = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/sam_sorted_N2_R0_compatible_isoform.tsv"),
+		time_sort = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/time_sort"),
+		time_ESPRESSO_S = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/time_ESPRESSO_S"),
+		time_ESPRESSO_C = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/time_ESPRESSO_C"),
+		time_ESPRESSO_Q = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/time_ESPRESSO_Q"),
+
+	input:
+		alignment = join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_G.bam'),
+		gtf_annotation = GTF_FILE,
+		genome_annotation = GENOME_FILE,
+
+	params:
+		output_directory = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}"),
+		updated_tsv_file = join(long_results_dir, "espresso_quant/{dtype}/{name}_{rep}{run}/sam_sorted.tsv.updated"),
+		ESPRESSO_S = "/nfshomes/zzare/espresso/src/ESPRESSO_S.pl",
+		ESPRESSO_C = "/nfshomes/zzare/espresso/src/ESPRESSO_C.pl",
+		ESPRESSO_Q = "/nfshomes/zzare/espresso/src/ESPRESSO_Q.pl",
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_sort} -v samtools sort -@{threads} -O sam {input.alignment} > {output.sam_sorted}
+		echo -e {output.sam_sorted}"\t"{wildcards.dtype} > {output.tsv_file}
+		/usr/bin/time -o {output.time_ESPRESSO_S} -v perl {params.ESPRESSO_S} -A {input.gtf_annotation} -L {output.tsv_file} -F {input.genome_annotation} -O {params.output_directory} -T {threads}
+		/usr/bin/time -o {output.time_ESPRESSO_C} -v perl {params.ESPRESSO_C} -I {params.output_directory} -F {input.genome_annotation} -X 0 -T {threads}
+		/usr/bin/time -o {output.time_ESPRESSO_Q} -v perl {params.ESPRESSO_Q} -A {input.gtf_annotation} -L {params.updated_tsv_file} -V {output.out_quant} -T {threads}
+		"""
+
+rule all_espresso:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'espresso_quant/{dtype}/{name}_{rep}{run}/samout_sorted.sam'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),

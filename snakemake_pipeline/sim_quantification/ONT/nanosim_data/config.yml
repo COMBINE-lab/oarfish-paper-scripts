@@ -1,0 +1,15 @@
+#the parameters for short and long reads
+oarfish: "/nfshomes/zzare/oarfish/target/release/oarfish"
+kallisto: "/nfshomes/zzare/kallisto/build/src/kallisto"
+bustools: "/nfshomes/zzare/bustools/build/src/bustools"
+
+human_transcriptome: "GCF_000001405.40_GRCh38.p14_rna.fna"
+gtf_file: "GCF_000001405.40_GRCh38.p14_genomic.gtf"
+genome_file: "GCF_000001405.40_GRCh38.p14_genomic.fna"
+
+data_dir: "/fs/cbcb-lab/rob/students/zahra/nanosim_data/dataset"
+align_dir: "/fs/cbcb-lab/rob/students/zahra/nanosim_data/alignment"
+reference_dir: "/fs/cbcb-lab/rob/students/zahra/nanosim_data/reference"
+long_results_dir: "/fs/cbcb-scratch/zzare/sim_quant/nanosim_quant"
+
+num_threads: 32

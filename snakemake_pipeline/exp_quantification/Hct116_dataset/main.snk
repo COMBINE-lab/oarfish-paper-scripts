@@ -1,0 +1,58 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+
+include: "alignments/Snakefile_shuffled"
+include: "alignments/alignment_genome/Snakefile_Alignment_ONT"
+include: "alignments/alignment_transcriptome/Snakefile_Alignment_ONT"
+include: "quantification/ShR_gibbs_sampling/Snakefile_ONT"
+include: "quantification/bambu_quant/Snakefile_ONT"
+include: "quantification/nanocount_quant/Snakefile_ONT"
+include: "quantification/kallisto_quant/Snakefile_ONT"
+include: "quantification/oarfish_quant/Snakefile_ONT"
+include: "quantification/oarfish_with_filter_quant/Snakefile_ONT"
+include: "quantification/transigner_quant/Snakefile_ONT"
+include: "quantification/IsoQuant/Snakefile_ONT"
+include: "quantification/espresso_quant/Snakefile_ONT"
+
+rule all:
+	input:
+		bambu_out = rules.all_bambu.input,
+		isoquant_out = rules.all_isoquant.input,
+		kallisto_out = rules.all_kallisto.input,
+		nanocount_out = rules.all_nanocount.input,
+		oarfish_out = rules.all_oarfish.input,
+		transigner_out = rules.all_transigner.input,
+		espresso_out = rules.all_espresso.input,
+
+
+rule just_bambu:
+	input:
+		bambu_out = rules.all_bambu.input,
+
+rule just_isoquant:
+	input:
+		isoquant_out = rules.all_isoquant.input,
+
+rule just_kallisto:
+	input:
+		kallisto_out = rules.all_kallisto.input,
+
+rule just_nanocount:
+	input:
+		nanocount_out = rules.all_nanocount.input,
+		
+rule just_oarfish:
+	input:
+		oarfish_out = rules.all_oarfish.input,
+
+rule just_transigner:
+	input:
+		transigner_out = rules.all_transigner.input,
+
+rule just_espresso:
+	input:
+		espresso_out = rules.all_espresso.input,

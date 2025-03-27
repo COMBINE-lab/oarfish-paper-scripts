@@ -1,0 +1,37 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+
+data_dir = config["data_dir"]
+
+
+rule shuffle_dataset:
+	output:
+		shuffled_data = join(data_dir, "SH-SY5Y_{sample}_shuffled.fastq.gz"),
+		shuffle_time = join(data_dir, "SH-SY5Y_{sample}_shuffled_time"),
+
+	input:
+		fastq_gz = join(data_dir, "SH-SY5Y_{sample}.fastq.gz"),
+	
+	params:
+		tmp_decompress = join(data_dir, "SH-SY5Y_{sample}.fastq"),
+		tmp_shuffle = join(data_dir, "SH-SY5Y_{sample}_shuffled.fastq"),
+
+	shell:
+		"""
+		gunzip -c {input.fastq_gz} > {params.tmp_decompress}
+		echo "Decompression complete"
+		/usr/bin/time -o {output.shuffle_time} -v shuffle.sh in={params.tmp_decompress} out={params.tmp_shuffle}
+		echo "Shuffling complete"
+		rm {params.tmp_decompress}
+		gzip -c {params.tmp_shuffle} > {output.shuffled_data}
+		echo "Compression complete"
+		rm {params.tmp_shuffle}
+		"""
+
+rule all_shuffle:
+	input:
+		mapped_long_reads = expand( join(data_dir, "SH-SY5Y_{sample}_shuffled.fastq.gz"), sample=["1D_cDNA", "direct_RNA", "TEQUILA-seq_4h", "TEQUILA-seq_8h"]),

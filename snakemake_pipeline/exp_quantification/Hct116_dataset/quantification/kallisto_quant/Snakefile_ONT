@@ -1,0 +1,164 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+kallisto = config["kallisto"]
+bustools = config["bustools"]
+
+data_dir = config["data_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+TRANSCRIPTOME_FILE = join(ref_dir, config["human_transcriptome"])
+
+rule drna_convert:
+	output:
+		out_read = join(data_dir, 'ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.perlm.fastq.gz'),
+	input:
+		in_read = join(data_dir, 'ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.fastq.gz'),
+	params:
+		in_read_tmp = join(data_dir, 'ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.fastq'),
+	threads: config["num_threads"]
+	shell:
+		"""
+		gunzip -c {input.in_read} > {params.in_read_tmp}
+		perl -pe 'tr/uU/tT/ unless(/@+/)' < {params.in_read_tmp} | gzip > {output.out_read}
+		rm {params.in_read_tmp}
+		"""
+
+rule kallisto_index:
+	output:
+		index_file = join(long_results_dir, "lr-kallisto/kallisto_index_k_63.idx"),
+		time_kallisto_index = join(long_results_dir, 'lr-kallisto/time_kallisto_index'),
+
+	input:
+		transcriptome = TRANSCRIPTOME_FILE,
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_kallisto_index} -v {kallisto} index -k 63 -i {output.index_file} {input.transcriptome} -t {threads}
+		"""
+
+rule kallisto_bus:
+	output:
+		time_kallisto = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_kallisto_bus'),
+		bus_file = join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}", 'output.bus'),
+		ec_file = join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}", 'matrix.ec'),
+		flen_file = join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}", 'flens.txt'),
+		txp_file = join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}", 'transcripts.txt')
+
+	input:
+		long_read = lambda wildcards: join(data_dir, 'ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.perlm.fastq.gz') if wildcards.dtype == "directRNA" else join(data_dir, 'ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.fastq.gz'),
+		index_file = join(long_results_dir, "lr-kallisto/kallisto_index_k_63.idx"),
+
+	params:
+		quant_dir = directory(join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}")),
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		mkdir -p {params.quant_dir}
+		/usr/bin/time -o {output.time_kallisto} -v {kallisto} bus -t {threads} -x bulk --long --threshold 0.8 -i {input.index_file} {input.long_read} -o {params.quant_dir}
+		"""
+
+rule bustools_sort:
+	output:
+		time_bustools_sort = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_bustools_sort'),
+		sorted_bus_file = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'output.sorted.bus')
+
+	input:
+		bus_file = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'output.bus')
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_bustools_sort} -v {bustools} sort -t {threads} {input.bus_file} -o {output.sorted_bus_file}
+		"""
+
+rule bustools_quant:
+	output:
+		time_quant_bustools = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_bustools_count'),
+		bustool_quant = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/count.mtx'),
+
+	input:
+		LRGASP_t2g = join(ref_dir, 'LRGASP.t2g'),
+		sorted_bus_file = join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}", "output.sorted.bus"),
+		txps = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'transcripts.txt'),
+		matrix_ec = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'matrix.ec'),
+
+	threads: config["num_threads"]
+
+	params:
+		bustool_quant = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/count'),
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_quant_bustools} -v {bustools} count {input.sorted_bus_file} -t {input.txps} -e {input.matrix_ec} -o {params.bustool_quant} --cm -m -g {input.LRGASP_t2g}
+		"""
+
+rule kallisto_quant:
+	output:
+		time_quant_kallisto = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_kallisto_quant'),
+		mtx = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'matrix.abundance.mtx'),
+		mtx_tpm = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'matrix.abundance.tpm.mtx'),
+
+	input:
+		count_mat = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', "count.mtx"),
+		flens = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', "flens.txt"),
+		index_file = join(long_results_dir, "lr-kallisto/kallisto_index_k_63.idx"),
+		count_ec = join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}", "matrix.ec"),
+
+	params:
+		quant_dir = join(long_results_dir, "lr-kallisto/{dtype}/{name}_{rep}{run}") 
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_quant_kallisto} -v {kallisto} quant-tcc -t {threads} --long -P ONT {input.count_mat} -f {input.flens} -i {input.index_file} -e {input.count_ec} -o {params.quant_dir}
+		"""
+
+rule kallisto_convert:
+	output:
+		time_kallisto_convert = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_kallisto_convert'),
+		abund = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'bus_quant_tcc.tsv'),
+
+	input:
+		inmtx = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'matrix.abundance.mtx'),
+
+	threads: config["num_threads"]
+
+	params:
+		abund_script = join("quantification/kallisto_quant/lrk_to_abund.py"),
+		indir = join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}'),
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_kallisto_convert} -v python {params.abund_script} {params.indir}
+		"""
+
+rule all_kallisto_bus:
+	input:
+		time_out = expand( join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_kallisto_bus'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),
+
+rule all_bustools_sort:
+	input:
+		time_out = expand( join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}', 'time_bustools_sort'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),
+
+rule all_bustools_count:
+	input:
+		time_out = expand( join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_bustools_count'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),
+
+rule all_kallisto_quant:
+	input:
+		out_files = expand( join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/time_kallisto_quant'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),
+
+rule all_kallisto:
+	input:
+		mapped_long_reads5 = expand( join(long_results_dir, 'lr-kallisto/{dtype}/{name}_{rep}{run}/bus_quant_tcc.tsv'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),

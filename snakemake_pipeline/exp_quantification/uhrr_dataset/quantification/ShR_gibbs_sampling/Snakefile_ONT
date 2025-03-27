@@ -1,0 +1,44 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+
+data_dir = join(config["data_dir"], "illumina_short_read")
+short_results_dir = "/fs/cbcb-lab/rob/students/zahra/sg-nex-data/H9/alignment/ShortReads"
+short_results_output = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+#Map short reads against transcripts using salmon
+rule salmon_index_short_read:
+	output:
+		idx = directory(join(short_results_dir, "Index.v44")),
+	input:
+		transcripts = join(ref_dir, config["human_transcriptome"]),
+		salmon = config["Salmon_dir"]
+	threads: 32
+	shell:
+		"""
+		{input.salmon} index -p {threads} -t {input.transcripts} -i {output.idx} -k 31
+		"""
+
+#short read quantification with Salmon
+rule salmon_quant_short_read:
+	output: 
+		quant_salmon = directory(join(short_results_output, 'short_read/{name}')),
+		quant_sf = join(short_results_output, 'short_read/{name}/quant.sf'),
+	input:
+		index = join(short_results_dir, "Index.v44"),
+		fq1   = join(data_dir, '{name}/SRR950078_1.fastq.gz'),
+		fq2   = join(data_dir, '{name}/SRR950078_2.fastq.gz'),
+		salmon = config["Salmon_dir"]
+	threads: 32
+	shell:
+		"""
+		{input.salmon} quant -p {threads} -i {input.index} --numGibbsSamples 50 --dumpEq -l A -1 {input.fq1} -2 {input.fq2} -o {output.quant_salmon}
+		"""
+
+rule all_ShR:
+	input:
+		salmon_quant_short_reads = expand(join(short_results_output, 'short_read/{name}/quant.sf'), name=["repA_1"]),

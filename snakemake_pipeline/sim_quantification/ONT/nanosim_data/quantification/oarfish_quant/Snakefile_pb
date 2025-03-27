@@ -1,0 +1,57 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+data_dir = config["data_dir"]
+align_dir = config["align_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+
+rule oarfish_quant_align_mode:
+	output: 
+		time_NoCoverage = join(long_results_dir, 'oarfish_align_quant/{rep}/{sample}/time_nocov'),
+		time_binomial = join(long_results_dir, 'oarfish_align_quant/{rep}/{sample}/time_cov'),
+	input:
+		alignment = join(align_dir, '{rep}/{sample}_T.bam'),
+		oarfish = config["oarfish"],
+	threads: config["num_threads"]
+	params:
+		quant_NoCoverage = join(long_results_dir, 'oarfish_align_quant/{rep}/{sample}/out_nocov'),
+		quant_binomial = join(long_results_dir, 'oarfish_align_quant/{rep}/{sample}/out_cov'),
+		drna_flag = lambda wildcards: "-d fw" if wildcards.sample == "drna" else "",
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_NoCoverage} -v {input.oarfish} --alignments {input.alignment} --threads {threads} --output {params.quant_NoCoverage} --filter-group no-filters {params.drna_flag}
+		/usr/bin/time -o {output.time_binomial} -v {input.oarfish} --alignments {input.alignment} --threads {threads} --output {params.quant_binomial} --model-coverage --filter-group no-filters {params.drna_flag}
+		"""
+
+rule oarfish_quant_raw_data_mode:
+	output: 
+		time_NoCoverage = join(long_results_dir, 'oarfish_raw_quant/{rep}/{sample}/time_nocov'),
+		time_binomial = join(long_results_dir, 'oarfish_raw_quant/{rep}/{sample}/time_cov'),
+	input:
+		read = join(data_dir, "{rep}/{sample}_s1_reads_shuffled.fastq.gz"),
+		index = join(align_dir, 'GCF_000001405.40_GRCh38.p14_rna.mmi'),
+		oarfish = config["oarfish"],
+	threads: config["num_threads"]
+	params:
+		quant_NoCoverage = join(long_results_dir, 'oarfish_raw_quant/{rep}/{sample}/out_nocov'),
+		quant_binomial = join(long_results_dir, 'oarfish_raw_quant/{rep}/{sample}/out_cov'),
+		drna_flag = lambda wildcards: "-d fw" if wildcards.sample == "drna" else "",
+		seq_flag = lambda wildcards: "ont-drna" if wildcards.sample == "drna" else "ont-cdna",
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_NoCoverage} -v {input.oarfish} --reads {input.read} --reference {input.index} --seq-tech {params.seq_flag} --threads {threads} --output {params.quant_NoCoverage} --filter-group no-filters {params.drna_flag}
+		/usr/bin/time -o {output.time_binomial} -v {input.oarfish} --reads {input.read} --reference {input.index} --seq-tech {params.seq_flag} --threads {threads} --output {params.quant_binomial} --model-coverage --filter-group no-filters {params.drna_flag}
+		"""
+
+
+rule all_oarfish:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'oarfish_align_quant/{rep}/{sample}/time_nocov'), zip, rep=["H9_1DcDNA", "H9_directRNA", "NA12878_1DcDNA", "NA12878_directRNA"], sample=["cdna", "drna", "cdna", "drna"]),
+		mapped_long_reads2 = expand( join(long_results_dir, 'oarfish_raw_quant/{rep}/{sample}/time_nocov'), zip, rep=["H9_1DcDNA", "H9_directRNA", "NA12878_1DcDNA", "NA12878_directRNA"], sample=["cdna", "drna", "cdna", "drna"]),

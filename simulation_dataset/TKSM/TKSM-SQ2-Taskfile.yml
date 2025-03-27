@@ -1,0 +1,133 @@
+version: '3'
+
+tasks:
+
+  get_read_data:
+    summary: |
+      Obtain the PacBio SQ2 sequenced data
+    cmds:
+      - |
+        for i in {1..12}; do
+          echo "Current number is: $i"
+          wget https://downloads.pacbcloud.com/public/dataset/Kinnex-full-length-RNA/DATA-SQ2-UHRR/2-FLNC/flnc-$i.bam
+          samtools fastq flnc-$i.bam > flnc-$i.fastq
+        done
+      - - echo "Concatenating all FASTQ files into SQ2.fastq"
+      - cat *.fastq > SQ2.fastq
+      - gzip -c SQ2.fastq > SQ2.fastq.gz
+
+  get_ref_txps:
+    summary: |
+      Obtain the reference transcript sequences for RefSeq 110 (GRCh38)
+    cmds:
+      - aria2c -x8 https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_rna.fna.gz
+
+  get_ref_genome:
+    summary: |
+      Obtain the reference genome sequences for RefSeq 110 (GRCh38)
+    cmds:
+      - aria2c -x8 https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.fna.gz
+
+  get_ref_annotation:
+    summary: |
+      Obtain the reference annotation for RefSeq 110 (GRCh38)
+    cmds:
+      - aria2c -x8 https://ftp.ncbi.nlm.nih.gov/genomes/all/annotation_releases/9606/110/GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.gtf.gz
+
+  polyA_tail_info:
+    summary: |
+      Obtain the information for polyAtail of the SQ2 dataset
+    cmds:
+      - ./polyAtail_length.r --input="SQ2.fastq" --output="polyAtail_SQ2" --samplename="SQ2"
+
+  badread_identity:
+    summary: |
+      obtain sequencing identity distribution for SQ2 dataset
+    cmds:
+      - minimap2 -t 36 -c -x map-hifi GCF_000001405.40_GRCh38.p14_rna.fna SQ2.fastq.gz | gzip > SQ2_T.paf.gz
+      - python badread_identity.py SQ2_T.paf.gz
+
+  badread_error_model:
+    summary: |
+      obtain the error model for SQ2 dataset
+    cmds:
+      - minimap2 -t 36 -c -x map-hifi GCF_000001405.40_GRCh38.p14_rna.fna SQ2.fastq.gz | gzip > SQ2_T.paf.gz
+      - badread error_model --reference GCF_000001405.40_GRCh38.p14_rna.fna --reads SQ2.fastq.gz --alignment SQ2_T.paf.gz > SQ2_error_model
+
+  badread_qscore_model:
+    summary: |
+      obtain the qscore model for SQ2 dataset
+    cmds:
+      - minimap2 -t 36 -c -x map-hifi GCF_000001405.40_GRCh38.p14_rna.fna SQ2.fastq.gz | gzip > SQ2_T.paf.gz
+      - badread qscore_model --reference GCF_000001405.40_GRCh38.p14_rna.fna --reads SQ2.fastq.gz --alignment SQ2_T.paf.gz > SQ2_qscore_model
+
+#================================================================TKSM pipeline for simulation==========================================================================
+  align_minimap2:
+    cmds:
+      - echo "Running minimap2 on SQ2 dataset"
+      - minimap2 -ax map-hifi -N 100 -t 36 GCF_000001405.40_GRCh38.p14_rna.fna SQ2.fastq.gz | samtools view -@36 -h -F 2052 > SQ2_T.sam
+      - paftools.js sam2paf SQ2_T.sam > SQ2_T.paf
+    sources:
+      - GCF_000001405.40_GRCh38.p14_rna.fna
+      - SQ2.fastq.gz
+    generates:
+      - SQ2_T.paf
+
+  Exprs_step:
+    summary: |
+      Quantify the SQ2 dataset
+    cmds:
+      - tksm abundance -p SQ2_T.paf -o SQ2_quant.tsv -em 1000
+    sources:
+      - SQ2_T.paf
+    generates:
+      - SQ2_quant.tsv
+
+  Trc_step:
+    summary: |
+      obtain the kde model for length distribution
+    cmds:
+      - tksm model-truncation -i SQ2_T.paf -o SQ2_kde.json -b -1 --grid-start 33 --grid-end 255166 -t 36
+    sources:
+      - SQ2_T.paf
+    generates:
+      - SQ2_kde.json
+
+  Tsb_step:
+    summary: |
+      obtain the kde model for length distribution
+    cmds:
+      - tksm transcribe -g GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.gtf -a SQ2_quant.tsv --molecule-count 14000000 --use-whole-id --non-coding -o SQ2_simulated_molecules.mdf
+    sources:
+      - GCF_000001405.40_GRCh38.p14/GCF_000001405.40_GRCh38.p14_genomic.gtf
+      - SQ2_quant.tsv
+    generates:
+      - SQ2_simulated_molecules.mdf
+
+  Core_modules:
+    summary: |
+      obtain the modified molecule based on the polyAtail and KDE model that is obtained 
+    cmds:
+      - tksm polyA -i SQ2_simulated_molecules.mdf -o SQ2_simulated_molecules_polyA.mdf --normal=16.24,10.26
+      - tksm shuffle -i SQ2_simulated_molecules_polyA.mdf -o SQ2_simulated_molecules_polyA_shuffled.mdf
+      - tksm truncate -i SQ2_simulated_molecules_polyA_shuffled.mdf -o SQ2_simulated_molecules_polyA_shuffled_truncated.mdf --kde-model SQ2_kde.json
+    sources:
+      - SQ2_simulated_molecules.mdf
+      - SQ2_kde.json
+    generates:
+      - SQ2_simulated_molecules_polyA.mdf
+      - SQ2_simulated_molecules_polyA_shuffled.mdf
+      - SQ2_simulated_molecules_polyA_shuffled_truncated.mdf
+
+  seq_modules:
+    summary: |
+      simulate the SQ2 sequenced dataset 
+    cmds:
+      - tksm sequence -i SQ2_simulated_molecules_polyA_shuffled_truncated.mdf -r GCF_000001405.40_GRCh38.p14_genomic.fna -o SQ2_simulated.fastq.gz --badread-identity 99.27,100.00,2.09 --badread-error-model SQ2_error_model --badread-qscore-model SQ2_qscore_model --output-format fastq --threads 36
+    sources:
+      - GCF_000001405.40_GRCh38.p14_genomic.fna
+      - SQ2_simulated_molecules_polyA_shuffled_truncated.mdf
+      - SQ2_error_model
+      - SQ2_qscore_model
+    generates:
+      - SQ2_simulated.fastq.gz

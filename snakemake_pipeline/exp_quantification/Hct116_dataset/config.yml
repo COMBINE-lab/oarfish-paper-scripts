@@ -1,0 +1,16 @@
+#the parameters for short and long reads
+Salmon_dir: "/nfshomes/zzare/salmon/build/src/salmon"
+oarfish: "/nfshomes/zzare/oarfish/target/release/oarfish"
+kallisto: "/nfshomes/zzare/kallisto/build/src/kallisto"
+bustools: "/nfshomes/zzare/bustools/build/src/bustools"
+
+human_transcriptome: "assembled_txps.fa"
+gtf_file: "hg38_sequins_SIRV_ERCCs_longSIRVs_corrected_IsoQuant.gtf"
+genome_file: "hg38_sequins_SIRV_ERCCs_longSIRVs.genome.fa"
+
+data_dir: "/fs/cbcb-lab/rob/students/zahra/sg-nex-data/Hct116/dataset"
+align_dir: "/fs/cbcb-lab/rob/students/zahra/sg-nex-data/Hct116/alignment"
+reference_dir: "/fs/cbcb-lab/rob/students/zahra/sg-nex-data/Reference_sequin"
+long_results_dir: "/fs/cbcb-scratch/zzare/exp_quant/Hct116_quant"
+
+num_threads: 32

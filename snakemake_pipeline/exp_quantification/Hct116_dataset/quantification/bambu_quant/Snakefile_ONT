@@ -1,0 +1,37 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+
+align_dir = config["align_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+GENOME_FILE = join(ref_dir, config["genome_file"])
+GTF_FILE = join(ref_dir, config["gtf_file"])
+
+
+#Long read quantification NoCoverage
+rule bambu_quant:
+	output:
+		quant_dir = directory(join(long_results_dir, 'bambu_quant/{dtype}/{name}_{rep}{run}')),
+		time_out = join(long_results_dir, "bambu_quant/{dtype}/{name}_{rep}{run}/time_info"),
+
+	input:
+		alignment = join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_G.bam'),
+		gtf_annotation = GTF_FILE,
+		genome_annotation = GENOME_FILE,
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		chmod u+x quantification/bambu_quant/bambu_quantification.r
+		/usr/bin/time -o {output.time_out} -v quantification/bambu_quant/bambu_quantification.r --LongRead={input.alignment} --annotation={input.gtf_annotation} --genome={input.genome_annotation} --output={output.quant_dir}
+		"""
+
+rule all_bambu:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'bambu_quant/{dtype}/{name}_{rep}{run}'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),

@@ -1,0 +1,41 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+data_dir = config["data_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+TRANSCRIPTOME_FILE = join(ref_dir, config["human_transcriptome"])
+
+#Long read quantification NoCoverage
+rule transigner_quant:
+	output:
+		output_directory = directory(join(long_results_dir, "transigner_quant/{dtype}/{name}_{rep}{run}")),
+		time_align = join(long_results_dir, "transigner_quant/{dtype}/{name}_{rep}{run}/time_align"),
+		time_prefilter = join(long_results_dir, "transigner_quant/{dtype}/{name}_{rep}{run}/time_prefilter"),
+		time_em = join(long_results_dir, "transigner_quant/{dtype}/{name}_{rep}{run}/time_em"),
+
+	input:
+		read = join(data_dir, 'ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.fastq.gz'),
+		transcriptome = TRANSCRIPTOME_FILE,
+	params:
+		alignment_file = join(long_results_dir, "transigner_quant/{dtype}/{name}_{rep}{run}/aln.bam"),
+		score_file = join(long_results_dir, "transigner_quant/{dtype}/{name}_{rep}{run}/scores.tsv"),
+		txp_index = join(long_results_dir, "transigner_quant/{dtype}/{name}_{rep}{run}/ti.pkl"),
+		filter = lambda wildcards: "--filter -tp -1" if wildcards.dtype == "directRNA" else "--filter -tp -500 -fp -600"
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_align} -v transigner align -q {input.read} -t {input.transcriptome} -d {output.output_directory} -o {params.alignment_file} -p {threads} -sN 100 -v
+		/usr/bin/time -o {output.time_prefilter} -v transigner prefilter -a {params.alignment_file} -t {input.transcriptome} -o {output.output_directory} {params.filter}
+		/usr/bin/time -o {output.time_em} -v transigner em -s {params.score_file} -i {params.txp_index} -o {output.output_directory} --drop --use-score
+		"""
+
+rule all_transigner:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'transigner_quant/{dtype}/{name}_{rep}{run}/time_prefilter'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),

@@ -1,0 +1,48 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+
+ref_dir = config["reference_dir"]
+data_dir = config["data_dir"]
+align_dir = config["align_dir"]
+
+
+TRANSCRIPTOME_FILE = join(ref_dir, config["human_transcriptome"])
+
+rule index_file_txp:
+	output: 
+		txp_index = join(align_dir, 'LongReads/assembled_txps.mmi'),
+		time_index = join(align_dir, 'LongReads/idx_time_T'),
+	input:
+		index = TRANSCRIPTOME_FILE,
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_index} -v minimap2 -t {threads} -x map-ont -d {output.txp_index} {input.index}
+		"""
+
+#Map long reads against transcripts using minimap2
+rule map_transcripts:
+	output: 
+		bam_out = join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_T.bam'),
+		time_out = join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_time_T'),
+	input:
+		index = join(align_dir, 'LongReads/assembled_txps.mmi'),
+		long_samples = join(data_dir, "ONT/SGNex_{name}_{dtype}_replicate{rep}_run{run}_shuffled.fastq.gz"),
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_out} -v minimap2 -t {threads} -a -N 100 {input.index} {input.long_samples}\
+		| samtools view -@{threads} -h -F 2052 -bS > {output.bam_out}
+		"""
+
+rule all_txp:
+	input:
+		mapped_long_reads = expand( join(align_dir, 'LongReads/{dtype}/{name}_{rep}{run}_T.bam'), zip, dtype=["directcDNA", "directRNA"], name=["Hct116", "Hct116"], rep=["3", "3"], run=["2", "1"]),

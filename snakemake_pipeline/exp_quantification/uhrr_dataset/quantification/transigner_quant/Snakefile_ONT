@@ -1,0 +1,42 @@
+#libraries
+from os.path import join
+
+if not workflow.overwrite_configfiles:
+	configfile: "config.yml"
+
+data_dir = config["data_dir"]
+long_results_dir = config["long_results_dir"]
+ref_dir = config["reference_dir"]
+
+TRANSCRIPTOME_FILE = join(ref_dir, config["human_transcriptome"])
+
+#Long read quantification NoCoverage
+rule transigner_quant:
+	output:
+		output_directory = directory(join(long_results_dir, "transigner_quant/{dtype}/{sample}")),
+		time_align = join(long_results_dir, "transigner_quant/{dtype}/{sample}/time_align"),
+		time_prefilter = join(long_results_dir, "transigner_quant/{dtype}/{sample}/time_prefilter"),
+		time_em = join(long_results_dir, "transigner_quant/{dtype}/{sample}/time_em"),
+
+	input:
+		read = join(data_dir, '{dtype}/{sample}/flnc_all_shuffled.fastq.gz'),
+		transcriptome = TRANSCRIPTOME_FILE,
+	params:
+		alignment_file = join(long_results_dir, "transigner_quant/{dtype}/{sample}/aln.bam"),
+		score_file = join(long_results_dir, "transigner_quant/{dtype}/{sample}/scores.tsv"),
+		txp_index = join(long_results_dir, "transigner_quant/{dtype}/{sample}/ti.pkl"),
+		filter = lambda wildcards: "--filter -tp -1" if wildcards.sample == "drna" else "--filter -tp -500 -fp -600",
+		seq_type = lambda wildcards: '' if wildcards.dtype == "ONT" else '-mm2=\"-ax map-hifi\"'
+
+	threads: config["num_threads"]
+
+	shell:
+		"""
+		/usr/bin/time -o {output.time_align} -v transigner align -q {input.read} -t {input.transcriptome} -d {output.output_directory} -o {params.alignment_file} -p {threads} -sN 100 {params.seq_type} -v
+		/usr/bin/time -o {output.time_prefilter} -v transigner prefilter -a {params.alignment_file} -t {input.transcriptome} -o {output.output_directory} {params.filter}
+		/usr/bin/time -o {output.time_em} -v transigner em -s {params.score_file} -i {params.txp_index} -o {output.output_directory} --drop --use-score
+		"""
+
+rule all_transigner:
+	input:
+		mapped_long_reads1 = expand( join(long_results_dir, 'transigner_quant/{dtype}/{sample}/time_prefilter'), zip, dtype=["ONT", "PacBio_kinnex", "PacBio_kinnex"], sample=["drna", "SQ2", "Revio"]),
